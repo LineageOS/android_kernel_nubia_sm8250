@@ -16,6 +16,24 @@
       "message": "Isn\u0027t it possible to disable color inversion on the UI side instead?",
       "revId": "1afd564fe4ddce7823832178289f3a62dca0a6be",
       "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    },
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "28d28181_d1ea1be2",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 19252
+      },
+      "writtenOn": "2023-08-20T17:08:04Z",
+      "side": 1,
+      "message": "I think we would need to implement an overlay toggle for it, but I\u0027d rather have a less accurate UDFPS when color inversion is enabled than remove color inversion feature just in case someone someone prefers using that for reading.\n\nI\u0027ll be testing this out on dubai as we have the same issue",
+      "parentUuid": "4130e718_f05e0784",
+      "revId": "1afd564fe4ddce7823832178289f3a62dca0a6be",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
     }
   ]
 }
