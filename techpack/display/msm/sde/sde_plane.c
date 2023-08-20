@@ -3390,6 +3390,9 @@ static inline void _sde_plane_set_csc_pcc(struct sde_plane *psde,
 	if (pcc_cfg == psde->pcc_cfg)
 		return;
 
+	if (pcc_cfg->r.c != 0 || pcc_cfg->b.c != 0 || pcc_cfg->g.c != 0)
+		return;
+
 	psde->pcc_cfg = pcc_cfg;
 
 	if (pcc_cfg) {
