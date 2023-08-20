@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "4130e718_f05e0784",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 13028
+      },
+      "writtenOn": "2023-08-20T17:01:20Z",
+      "side": 1,
+      "message": "Isn\u0027t it possible to disable color inversion on the UI side instead?",
+      "revId": "1afd564fe4ddce7823832178289f3a62dca0a6be",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
