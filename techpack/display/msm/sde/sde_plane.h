@@ -110,6 +110,7 @@ struct sde_plane_state {
 
 	struct sde_hw_pipe_cdp_cfg cdp_cfg;
 	u8 fod_dim_alpha;
+	bool color_invert_on;
 };
 
 /**
