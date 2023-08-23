@@ -1425,12 +1425,27 @@ static int sde_cp_crtc_checkfeature(struct sde_cp_node *prop_node,
 	return ret;
 }
 
+#define FOD_PRESSED 1638842112
+
+bool sde_is_fod_pressed(struct drm_crtc *crtc) {
+	struct sde_crtc_state *cstate;
+	int val;
+
+	cstate = to_sde_crtc_state(crtc->state);
+
+	val = sde_crtc_get_property(cstate, PLANE_PROP_FOD);
+	//pr_err("is fod: %d\n", val);
+
+	return val == FOD_PRESSED;
+}
+
 static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 				   struct sde_crtc *sde_crtc)
 {
 	struct sde_hw_cp_cfg hw_cfg;
 	struct sde_hw_mixer *hw_lm;
 	struct sde_hw_dspp *hw_dspp;
+	struct sde_hw_ctl *hw_ctl;
 	struct drm_crtc *drm_crtc = &sde_crtc->base;
 	struct sde_crtc_state *cstate = to_sde_crtc_state(drm_crtc->state);
 	struct drm_property_blob *blob;
@@ -1452,6 +1467,34 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 		hw_cfg.dspp[i] = hw_dspp;
 	}
 
+	for (i = 0; i < num_mixers; i++) {
+		hw_ctl = sde_crtc->mixers[i].hw_ctl;
+		if (!hw_ctl)
+			continue;
+		if (sde_is_fod_pressed(&sde_crtc->base) && cstate->color_invert_on) {
+			if (hw_ctl->ops.update_bitmask_dspp
+					&& sde_crtc->mixers[i].hw_dspp) {
+				hw_ctl->ops.update_bitmask_dspp(hw_ctl,
+						sde_crtc->mixers[i].hw_dspp->idx, 1);
+				pr_err("Inside bitmask dspp if\n");
+			}
+			if (hw_ctl->ops.update_bitmask_mixer
+					&& sde_crtc->mixers[i].hw_lm) {
+				hw_ctl->ops.update_bitmask_mixer(hw_ctl,
+						sde_crtc->mixers[i].hw_lm->idx, 1);
+				pr_err("Inside bitmask mixer if\n");
+			}
+
+			pr_err("fod pressed color invert on if\n");
+		}
+	}
+
+	if (sde_is_fod_pressed(&sde_crtc->base) && cstate->color_invert_on) {
+		hw_cfg.payload = NULL;
+		hw_cfg.len = 0;
+		pr_err("fod pressed\n");
+	}
+
 	if (prop_node->feature == SDE_CP_CRTC_DSPP_PCC) {
 		blob = prop_node->blob_ptr;
 		pcc_cfg = blob->data;
@@ -1462,6 +1505,8 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 			hw_cfg.len = 0;
 		} else
 			cstate->color_invert_on = true;
+
+		pr_err("crtc fod DSPP_PCC\n");
 	}
 
 	if ((prop_node->feature >= SDE_CP_CRTC_MAX_FEATURES) ||
