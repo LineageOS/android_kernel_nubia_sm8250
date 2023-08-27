@@ -1178,45 +1178,39 @@ static const struct sde_csc_cfg sde_identity_csc_dgm_cfg = {
 	},
 };
 
-static inline s32 csc_to_signed(u32 v)
+static inline u64 pcc_normalize(u32 v)
 {
-	return sign_extend32(v, __fls(CSC_MASK));
-}
+	u32 ret = v;
+	if (v > PCC_ONE)
+		ret = PCC_MASK - v;
 
-static inline u32 csc_to_unsigned(s32 v)
-{
-	return ((u32) v) & CSC_MASK;
-}
-
-static inline s32 pcc_to_signed(u32 v)
-{
-	return sign_extend32(v, __fls(PCC_MASK));
+	return ret;
 }
 
 static inline void _sde_plane_mul_csc_pcc(struct sde_plane *psde,
 					  const struct sde_csc_cfg *csc_cfg)
 {
-	unsigned int i, j, u;
+	unsigned int i, j;
+	unsigned int csc_one;
 
 	memcpy(&psde->csc_pcc_cfg, csc_cfg, sizeof(psde->csc_pcc_cfg));
 
 	for (i = 0; i < 3; i++) {
+		csc_one = csc_cfg->csc_mv[i * 3 + i];
 		for (j = 0; j < 3; j++) {
 			unsigned int ij = i * 3 + j;
-			s64 sum = 0;
+			u64 mul = 0;
+			u64 pcc = psde->pcc_coeff[ij];
 
-			for (u = 0; u < 3; u++) {
-				unsigned int iu = i * 3 + u;
-				unsigned int uj = u * 3 + j;
-				s64 csc = csc_to_signed(csc_cfg->csc_mv[uj]);
-				s64 pcc = pcc_to_signed(psde->pcc_coeff[iu]);
-
-				sum += csc * pcc;
+			if (pcc > 0) {
+				if (pcc > PCC_ONE) {
+					mul = div_s64(csc_one * pcc_normalize(pcc), PCC_ONE);
+					mul = CSC_MASK - mul;
+				} else
+					mul = div_s64(csc_one * pcc, PCC_ONE);
 			}
 
-			sum = div_s64(sum, PCC_ONE);
-
-			psde->csc_pcc_cfg.csc_mv[ij] = csc_to_unsigned(sum);
+			psde->csc_pcc_cfg.csc_mv[ij] = mul;
 		}
 	}
 }
