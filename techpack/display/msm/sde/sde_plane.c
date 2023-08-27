@@ -1187,6 +1187,30 @@ static inline u64 pcc_normalize(u32 v)
 	return ret;
 }
 
+static inline void csc_filter_offset(struct sde_plane *psde, unsigned int csc_one)
+{
+	unsigned int i, j;
+	bool needs_offset = true;
+
+	for (i = 0; i < 3; i++) {
+		unsigned int ii = i * 3 + i;
+		for (j = 0; j < 3; j++) {
+			unsigned int ij = i * 3 + j;
+			if (psde->csc_pcc_cfg.csc_mv[ij] > 0) {
+				if (ij != ii) {
+					needs_offset = false;
+					break;
+				}
+			}
+		}
+
+		if (needs_offset) {
+			psde->csc_pcc_cfg.csc_mv[ii] /= 2;
+			psde->csc_pcc_cfg.csc_mv[ii] += csc_one / 2;
+		}
+	}
+}
+
 static inline void _sde_plane_mul_csc_pcc(struct sde_plane *psde,
 					  const struct sde_csc_cfg *csc_cfg)
 {
@@ -1213,6 +1237,8 @@ static inline void _sde_plane_mul_csc_pcc(struct sde_plane *psde,
 			psde->csc_pcc_cfg.csc_mv[ij] = mul;
 		}
 	}
+
+	csc_filter_offset(psde, csc_one);
 }
 
 static inline void _sde_plane_setup_csc_pcc(struct sde_plane *psde)
