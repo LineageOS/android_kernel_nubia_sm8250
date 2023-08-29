@@ -1147,6 +1147,8 @@ static inline void _sde_plane_setup_csc(struct sde_plane *psde)
 #define CSC_8BIT_LIMIT			0xff
 #define PCC_MASK			0x3ffff
 #define PCC_ONE				(1 << 15)
+#define PREC_INDEX			10000
+#define PREC_DOUBLE_INDEX		100000000
 
 #define CSC_BIAS_CLAMP(value) \
 	{ 0, 0, 0 }, \
@@ -1190,39 +1192,234 @@ static const struct sde_csc_cfg sde_identity_csc_dgm_cfg = {
  * returns: The normalized PCC coefficient value, constrained within the valid
  *          range.
  */
-inline u32 pcc_normalize(u32 v)
+inline u64 pcc_normalize(u64 v)
 {
-	u32 ret = v;
+	u64 ret = v;
 	if (v > PCC_ONE)
 		ret = PCC_MASK - v;
 
 	return ret;
 }
 
+/*
+ * Checks whether the given input array has already been populated with values
+ * or is empty.
+ *
+ * input: array The input array to be checked.
+ *        size  The size of the array.
+ *
+ * returns: True if the array is empty (all elements are zero), false otherwise.
+ */
+inline bool is_array_empty(const u32 array[], size_t size)
+{
+	u8 i;
+	for (i = 0; i < size; i++) {
+		if (array[i] != 0)
+			return false;
+	}
+
+	return true;
+}
+
+/*
+ * Convert PCC filter values for color filters into CSC values, in a non linear
+ * way.
+ * Anecdotally analizying the progression of values of PCC coefficients and their
+ * actual results in terms of graphic rendering, this equation is the closest
+ * conversion between PCC values and CSC values.
+ *
+ * The actual mathematical equation would be:
+ * y = csc_one * ((z * (sqrt(x) / sqrt(32768))) + ((100 - z) * (x / 32768)^2)) / 100
+ * with z = 115
+ *
+ * input: csc_one  The maximum CSC value for this color space.
+ *        pcc      The current value of the PCC coefficient.
+ *
+ * returns: Non linear CSC coefficient for the PCC input value
+ */
+inline u32 csc_nonlin_conv(u32 csc_one, u64 pcc)
+{
+	const u8 mul_const = 15;
+	const u8 div_const = 100;
+	u64 res, sqrt, pow;
+
+	sqrt = DIV_ROUND_CLOSEST_ULL(PREC_INDEX * int_sqrt(pcc * PREC_INDEX) * csc_one,
+						int_sqrt(PCC_ONE * PREC_INDEX));
+	pow = DIV_ROUND_CLOSEST_ULL(PREC_INDEX * pcc * pcc * csc_one, PCC_ONE * PCC_ONE);
+	res = ((div_const + mul_const) * sqrt) - (mul_const * pow);
+	res = DIV_ROUND_CLOSEST_ULL(res, div_const * PREC_INDEX);
+
+	return res;
+}
+
+/*
+ * Calculates the base CSC value using a linear approach.
+ *
+ * input: csc_one The maximum CSC value for this color space.
+ *        pcc     The PCC coefficient value.
+ *
+ * @return The calculated CSC value using the linear approach.
+ */
+inline u64 csc_lin_calc(u64 csc_one, u64 pcc)
+{
+	return DIV_ROUND_CLOSEST_ULL(csc_one * pcc, PCC_ONE);
+}
+
+/*
+ * Calculate the ratio between the non linear CSC conversions of two PCC
+ * coefficients, with added precision.
+ * This ratio is meant to be used as coefficient to transform the base CSC
+ * value, obtained linearly, into the CSC value with the color filter applied.
+ *
+ * input: csc_one   The maximum CSC value for this color space.
+ *        base_pcc  The base PCC coefficient without filters applied.
+ *        new_pcc   The new PCC coefficient with filters applied.
+ * returns: The ratio between the non linear CSC calculation of new_pcc and
+ *          the one of base_pcc.
+ */
+inline u32 csc_filter_coeff_calc(u32 csc_one, u32 base_pcc, u32 new_pcc)
+{
+	u32 base_csc, new_csc, new_csc_coeff;
+
+	new_csc = csc_nonlin_conv(csc_one, new_pcc);
+	base_csc = csc_nonlin_conv(csc_one, base_pcc);
+	new_csc_coeff = DIV_ROUND_CLOSEST_ULL(new_csc * PREC_INDEX, base_csc);
+
+	return new_csc_coeff;
+}
+
+/*
+ * Rounds the input value to the target value if the absolute difference between
+ * them is within a specified percentage of the input value. The percentage
+ * is expressed in parts per thousand (‰).
+ *
+ * input: value   The value to be rounded.
+ *        target  The target value for rounding.
+ *        approx  The maximum percentage deviation allowed for rounding.
+ *
+ * returns: The rounded value, either the input value or the target value.
+ */
+inline u64 round_off_value(u64 value, u64 target, u32 approx)
+{
+	u32 approx_val = DIV_ROUND_CLOSEST_ULL(value * approx, 1000);
+
+	if (abs((s64)target - value) >= approx_val)
+		return value;
+
+	return target;
+}
+
+/*
+ * Calculate the ratio between two PCC coefficients, multiplied by
+ * PREC_DOUBLE_INDEX for better precision.
+ */
+inline u64 pcc_coeff_ratio(u32 old_pcc_coeff, u64 new_pcc_coeff)
+{
+	new_pcc_coeff *= PREC_DOUBLE_INDEX;
+
+	return DIV_ROUND_CLOSEST_ULL(new_pcc_coeff, old_pcc_coeff);
+}
+
+/*
+ * Determines whether the current PCC filter represents a color filter or a
+ * color correction.
+ * Color filters and color corrections require different treatment, as the
+ * former involves modifying existing values while the latter entails
+ * introducing entirely new values.
+ *
+ * The decision is based on whether the ratio between the previous PCC
+ * coefficient and the new coefficient remains constant across the entire row
+ * of values.
+ *
+ * input: old_pcc_coeff  An array containing the previous PCC coefficients.
+ *        new_pcc_coeff  An array containing the new PCC coefficients.
+ *        i              Index used for row calculations.
+ *
+ * returns: True if the PCC change is a color filter, false otherwise.
+ */
+inline bool is_color_filter(u32 old_pcc_coeff[], u32 new_pcc_coeff[], u8 i)
+{
+	const u32 margin = 50 * PREC_INDEX;
+	u8 j;
+	u8 ii = i * 3 + i;
+	s64 mratio = pcc_coeff_ratio(old_pcc_coeff[ii], new_pcc_coeff[ii]);
+
+	for (j = 0; j < 3; j++) {
+		u8 ij = i * 3 + j;
+		u32 old_pcc_normalized, new_pcc_normalized;
+		s64 ratio = 0;
+		old_pcc_normalized = pcc_normalize(old_pcc_coeff[ij]);
+		new_pcc_normalized = pcc_normalize(new_pcc_coeff[ij]);
+
+		if (old_pcc_normalized == 0 && new_pcc_normalized == 0)
+			continue;
+
+		if (old_pcc_normalized == 0 || new_pcc_normalized == 0)
+			return false;
+
+		ratio = pcc_coeff_ratio(old_pcc_normalized, new_pcc_normalized);
+
+		if (abs(mratio - ratio) >= margin)
+			return false;
+	}
+
+	return true;
+}
+
 static inline void _sde_plane_mul_csc_pcc(struct sde_plane *psde,
 					  const struct sde_csc_cfg *csc_cfg)
 {
-	unsigned int i, j;
-	unsigned int csc_one;
+	u8 i, j;
+	u32 csc_one;
+	bool color_filter = false;
+	static u32 csc_filter_coeff[9] = { PREC_INDEX, PREC_INDEX, PREC_INDEX,
+					   PREC_INDEX, PREC_INDEX, PREC_INDEX,
+					   PREC_INDEX, PREC_INDEX, PREC_INDEX };
+	static u64 pcc_ratio[3] = { PREC_DOUBLE_INDEX, PREC_DOUBLE_INDEX, PREC_DOUBLE_INDEX };
+	static u32 old_pcc_coeff[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+	if (is_array_empty(old_pcc_coeff, 9))
+		memcpy(&old_pcc_coeff, psde->pcc_coeff, sizeof(psde->pcc_coeff));
 
 	memcpy(&psde->csc_pcc_cfg, csc_cfg, sizeof(psde->csc_pcc_cfg));
-
 	for (i = 0; i < 3; i++) {
-		csc_one = csc_cfg->csc_mv[i * 3 + i];
-		for (j = 0; j < 3; j++) {
-			unsigned int ij = i * 3 + j;
-			u64 mul = 0;
-			u64 pcc = psde->pcc_coeff[ij];
+		u8 ii = i * 3 + i;
+		u64 pcc = psde->pcc_coeff[ii];
+		color_filter = is_color_filter(old_pcc_coeff, psde->pcc_coeff, i);
+		csc_one = csc_cfg->csc_mv[ii];
 
-			if (pcc > 0) {
-				if (pcc > PCC_ONE) {
-					mul = div_s64(csc_one * pcc_normalize(pcc), PCC_ONE);
-					mul = CSC_MASK - mul;
-				} else
-					mul = div_s64(csc_one * pcc, PCC_ONE);
+		if (color_filter)
+			pcc_ratio[i] = pcc_coeff_ratio(old_pcc_coeff[ii], pcc);
+
+		for (j = 0; j < 3; j++) {
+			bool pcc_neg = false;
+			u8 ij = i * 3 + j;
+			u64 base_csc, base_pcc;
+			u64 csc = 0;
+			pcc = psde->pcc_coeff[ij];
+
+			if (pcc > PCC_ONE) {
+				pcc_neg = true;
+				pcc = pcc_normalize(pcc);
 			}
 
-			psde->csc_pcc_cfg.csc_mv[ij] = mul;
+			base_pcc = DIV_ROUND_CLOSEST_ULL(pcc * PREC_DOUBLE_INDEX, pcc_ratio[i]);
+			if (color_filter) {
+				base_csc = csc_lin_calc(csc_one, base_pcc);
+				csc_filter_coeff[ij] = csc_filter_coeff_calc(csc_one, base_pcc, pcc);
+				csc = DIV_ROUND_CLOSEST_ULL(base_csc * csc_filter_coeff[ij], PREC_INDEX);
+			} else {
+				csc = csc_lin_calc(csc_one, pcc);
+				csc = DIV_ROUND_CLOSEST_ULL(csc * csc_filter_coeff[ij], PREC_INDEX);
+				old_pcc_coeff[ij] = round_off_value(base_pcc, PCC_ONE, 2);
+			}
+
+			if (pcc_neg) {
+				csc = CSC_MASK - csc;
+				old_pcc_coeff[ij] = PCC_MASK - old_pcc_coeff[ij];
+			}
+
+			psde->csc_pcc_cfg.csc_mv[ij] = csc;
 		}
 	}
 }
