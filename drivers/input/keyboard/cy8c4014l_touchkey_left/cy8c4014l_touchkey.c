@@ -31,7 +31,7 @@
 
 static struct cypress_info *g_cypress_touch_key_info = NULL;
 
-static int cypress_get_mode_left() {
+static int cypress_get_mode_left(void) {
 	struct i2c_client *client = g_cypress_touch_key_info->i2c;
 	return i2c_smbus_read_byte_data(client, CYPRESS4000_TOUCHKEY_MODE);
 }
