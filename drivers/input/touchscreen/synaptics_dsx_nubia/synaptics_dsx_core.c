@@ -1408,7 +1408,7 @@ exit:
 }
 
 #ifdef NUBIA_TOUCH_SYNAPTICS
-static void synaptics_nubiaForcedResume(struct work_struct*)
+static void synaptics_nubiaForcedResume(struct work_struct* worker)
 {
 	while ((g_rmi4_data->fp_event_count < FORCED_RESUME) &&
 			g_rmi4_data->fp_down_input_flag) {
