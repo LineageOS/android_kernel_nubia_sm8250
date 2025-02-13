@@ -3696,8 +3696,8 @@ static void stk_ps_tune0_work_func(struct work_struct *work)
 	if(stk_data->prox_debug)
 		return;
 
-    if(stk_data->entry_suspend == true)
-        return;
+	if(stk_data->entry_suspend == true)
+		return;
 
 	if(stk_data->tune_zero_init_proc)
 		stk_tune_zero_get_ps_data(stk_data);
