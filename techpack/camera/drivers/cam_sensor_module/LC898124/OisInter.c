@@ -432,7 +432,7 @@ void DMIOWrite32( UINT32 IOadrs, UINT32 IOdata )
 // Explanation		: Angle Correction
 // History			: First edition
 //********************************************************************************
-UINT8 SetAngleCorrection( float DegreeGap, UINT8 SelectAct, UINT8 Arrangement )
+UINT8 SetAngleCorrection( int DegreeGap, UINT8 SelectAct, UINT8 Arrangement )
 {
 	//double OffsetAngle = 0.0f;
 	INT32 Slgx45x, Slgx45y;
@@ -440,7 +440,7 @@ UINT8 SetAngleCorrection( float DegreeGap, UINT8 SelectAct, UINT8 Arrangement )
 
     CDBG("FX lc898 SetAngleCorrection \n");
 
-	if( ( DegreeGap > 180.0f) || ( DegreeGap < -180.0f ) ) return ( 1 );
+	if( ( DegreeGap > 180) || ( DegreeGap < -180 ) ) return ( 1 );
 	if( Arrangement >= 2 ) return ( 1 );
 
 #if 0
@@ -983,7 +983,7 @@ int32_t msm_ois_lc898124_init_AF(struct camera_io_master ois_master)
 
         RemapMain();
 
-        SetAngleCorrection(180.0, ACT_HOZEL_OZ31A401,1);
+        SetAngleCorrection(180, ACT_HOZEL_OZ31A401,1);
 
         msm_ois_lc898124_check_status();
         if(ois_status){
@@ -1004,7 +1004,7 @@ int32_t msm_ois_lc898124_init_AF(struct camera_io_master ois_master)
             return rc;
         }
 
-        SetAngleCorrection(180.0, ACT_HOZEL_OZ31A401,1);
+        SetAngleCorrection(180, ACT_HOZEL_OZ31A401,1);
         if((offset == 0) || (offset == 0xFFFFFFFF)){
             SetGyroOffset(0,0);
         }else{
